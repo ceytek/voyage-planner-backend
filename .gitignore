@@ -1,0 +1,55 @@
+# Dependencies
+node_modules/
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# Environment variables
+.env
+.env.local
+.env.dev
+.env.docker
+.env.production
+
+# Logs
+*.log
+logs/
+backend.log
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Build outputs
+dist/
+build/
+*.tsbuildinfo
+
+# Docker volumes
+postgres-data/
+
+# Temporary files
+*.tmp
+*.temp
+
+# Firebase
+firebase-adminsdk-*.json
+serviceAccountKey.json
+
+# Frontend - Not included in backend repo (deployed via Expo separately)
+Front-end/
+
+# AI Service specific
+AI-Service/node_modules/
+AI-Service/dist/
+AI-Service/logs/
+
+# Backend specific
+Back-end/node_modules/
+Back-end/dist/

@@ -1,0 +1,43 @@
+# Node modules
+node_modules
+npm-debug.log
+
+# Git
+.git
+.gitignore
+
+# Environment files (sunucuda ayrı oluşturulacak)
+.env
+.env.local
+.env.*.local
+
+# TypeScript build output
+dist
+
+# Logs
+*.log
+logs
+backend.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+
+# Test
+test
+*.test.ts
+coverage
+
+# Database
+*.sqlite
+*.db
+
+# Uploads (eğer varsa)
+uploads
+temp

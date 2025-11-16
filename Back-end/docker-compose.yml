@@ -1,0 +1,58 @@
+version: '3.8'
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: planner-backend
+    restart: unless-stopped
+    ports:
+      - "4001:4001"
+    environment:
+      - PORT=4001
+      - NODE_ENV=production
+    env_file:
+      - .env
+    volumes:
+      # Log dosyaları için volume
+      - ./logs:/app/logs
+    depends_on:
+      - postgres
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:4001/graphql"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - planner-network
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: planner-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: planner_db
+      POSTGRES_USER: planner_user
+      POSTGRES_PASSWORD: change_this_password
+    volumes:
+      # Database persistence
+      - postgres-data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U planner_user -d planner_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - planner-network
+
+volumes:
+  postgres-data:
+    driver: local
+
+networks:
+  planner-network:
+    driver: bridge
