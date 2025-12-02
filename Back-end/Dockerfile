@@ -8,7 +8,7 @@ WORKDIR /app
 COPY package*.json ./
 
 # Tüm bağımlılıkları yükle (TypeScript dahil)
-RUN npm ci
+RUN npm install
 
 # TypeScript kaynak kodlarını kopyala
 COPY . .
@@ -17,7 +17,7 @@ COPY . .
 RUN npm run build
 
 # Production bağımlılıklarını yeniden yükle (build sonrası)
-RUN npm ci --only=production
+RUN npm install --only=production
 
 # Port bilgisi (bilgilendirme amaçlı)
 EXPOSE 4000
