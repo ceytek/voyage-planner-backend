@@ -43,6 +43,7 @@ export class AppleIAPService {
 
       // Status 21007 = sandbox receipt sent to production, retry with sandbox
       if (response.data.status === 21007 && isProduction) {
+        console.warn('[AppleIAP] 21007: Sandbox receipt sent to production. Retrying with SANDBOX');
         return this.verifyReceipt(receiptData, false);
       }
 

@@ -18,10 +18,13 @@ const firebaseConfig = {
 
 // Initialize Firebase Admin SDK
 if (!admin.apps.length) {
+  console.log('🔥 Initializing Firebase Admin SDK with project:', process.env.FIREBASE_PROJECT_ID);
+  console.log('🔥 Firebase client email:', process.env.FIREBASE_CLIENT_EMAIL);
   admin.initializeApp({
     credential: admin.credential.cert(firebaseConfig as admin.ServiceAccount),
     projectId: process.env.FIREBASE_PROJECT_ID,
   });
+  console.log('✅ Firebase Admin SDK initialized successfully');
 }
 
 export const firebaseAuth = admin.auth();
