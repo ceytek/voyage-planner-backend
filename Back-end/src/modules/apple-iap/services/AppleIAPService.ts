@@ -28,28 +28,50 @@ export class AppleIAPService {
   // Apple Shared Secret (App Store Connect'ten alınacak)
   private readonly sharedSecret = process.env.APPLE_SHARED_SECRET || '';
 
+  constructor() {
+    if (!this.sharedSecret) {
+      console.error('[AppleIAP] ⚠️ WARNING: APPLE_SHARED_SECRET environment variable is not set! IAP verification will fail.');
+    } else {
+      console.log('[AppleIAP] ✅ Apple Shared Secret loaded successfully');
+    }
+  }
+
   /**
    * Apple'dan makbuz doğrulama
    */
   async verifyReceipt(receiptData: string, isProduction = true): Promise<AppleReceiptVerification> {
+    if (!this.sharedSecret) {
+      throw new Error('Apple Shared Secret is not configured. Please set APPLE_SHARED_SECRET environment variable.');
+    }
+
     const url = isProduction ? APPLE_VERIFY_URL_PRODUCTION : APPLE_VERIFY_URL_SANDBOX;
 
     try {
+      console.log(`[AppleIAP] Verifying receipt with ${isProduction ? 'PRODUCTION' : 'SANDBOX'} URL`);
+      
       const response = await axios.post(url, {
         'receipt-data': receiptData,
         password: this.sharedSecret,
         'exclude-old-transactions': true,
       });
 
+      console.log(`[AppleIAP] Apple response status: ${response.data.status}`);
+
       // Status 21007 = sandbox receipt sent to production, retry with sandbox
       if (response.data.status === 21007 && isProduction) {
-        console.warn('[AppleIAP] 21007: Sandbox receipt sent to production. Retrying with SANDBOX');
+        console.warn('[AppleIAP] 21007: Sandbox receipt detected in production. Automatically retrying with SANDBOX URL');
         return this.verifyReceipt(receiptData, false);
+      }
+
+      // Status 21008 = production receipt sent to sandbox (edge case)
+      if (response.data.status === 21008 && !isProduction) {
+        console.warn('[AppleIAP] 21008: Production receipt detected in sandbox. Automatically retrying with PRODUCTION URL');
+        return this.verifyReceipt(receiptData, true);
       }
 
       return response.data;
     } catch (error) {
-      console.error('Apple receipt verification error:', error);
+      console.error('[AppleIAP] Apple receipt verification error:', error);
       throw new Error('Failed to verify receipt with Apple');
     }
   }
@@ -69,9 +91,12 @@ export class AppleIAPService {
     newBalance?: number;
   }> {
     try {
+      console.log(`[AppleIAP] Starting verification for user ${userId}, product ${productId}, transaction ${transactionId}`);
+
       // 1. Ürün bilgisini al
       const packageInfo = CREDIT_PACKAGES[productId];
       if (!packageInfo) {
+        console.error(`[AppleIAP] Invalid product ID: ${productId}`);
         return {
           success: false,
           message: 'Geçersiz ürün ID',
@@ -81,17 +106,21 @@ export class AppleIAPService {
       // 2. Transaction daha önce kullanılmış mı kontrol et
       const existingTransaction = await this.findTransactionByTransactionId(transactionId);
   if (existingTransaction && existingTransaction.status === AppleTransactionStatus.VERIFIED) {
+        console.warn(`[AppleIAP] Transaction ${transactionId} already verified`);
         return {
           success: false,
           message: 'Bu satın alma daha önce kullanıldı',
         };
       }
 
-      // 3. Apple'dan makbuzu doğrula
+      // 3. Apple'dan makbuzu doğrula (otomatik olarak production'dan başlar, 21007 gelirse sandbox'a düşer)
+      console.log('[AppleIAP] Verifying receipt with Apple...');
       const verificationResult = await this.verifyReceipt(receiptData);
 
       // 4. Doğrulama başarısız
       if (verificationResult.status !== 0) {
+        console.error(`[AppleIAP] Verification failed with status ${verificationResult.status}: ${this.getAppleStatusMessage(verificationResult.status)}`);
+        
         await this.saveTransaction(
           userId,
           productId,
@@ -116,15 +145,19 @@ export class AppleIAPService {
       );
 
       if (!matchingPurchase) {
+        console.error(`[AppleIAP] Purchase not found in receipt. Looking for transaction ${transactionId} with product ${productId}`);
         return {
           success: false,
           message: 'Satın alma bilgisi makbuzda bulunamadı',
         };
       }
 
+      console.log(`[AppleIAP] Purchase found in receipt: ${JSON.stringify(matchingPurchase)}`);
+
       // 6. Kullanıcıyı bul
       const user = await this.userRepository.findOne({ where: { id: userId } });
       if (!user) {
+        console.error(`[AppleIAP] User not found: ${userId}`);
         return {
           success: false,
           message: 'Kullanıcı bulunamadı',
@@ -133,8 +166,11 @@ export class AppleIAPService {
 
       // 7. Kredileri ekle
       const creditsToAdd = packageInfo.credits;
-      user.currentCredit = (user.currentCredit || 0) + creditsToAdd;
+      const oldBalance = user.currentCredit || 0;
+      user.currentCredit = oldBalance + creditsToAdd;
       await this.userRepository.save(user);
+
+      console.log(`[AppleIAP] Credits added: ${creditsToAdd}. New balance: ${user.currentCredit} (was ${oldBalance})`);
 
       // 8. Transaction kaydını oluştur
       await this.saveTransaction(
@@ -146,6 +182,8 @@ export class AppleIAPService {
   AppleTransactionStatus.VERIFIED
       );
 
+      console.log(`[AppleIAP] ✅ Verification successful for transaction ${transactionId}`);
+
       return {
         success: true,
         message: `${creditsToAdd} kredi hesabınıza eklendi!`,
@@ -153,7 +191,7 @@ export class AppleIAPService {
         newBalance: user.currentCredit,
       };
     } catch (error: any) {
-      console.error('Error verifying and adding credits:', error);
+      console.error('[AppleIAP] Error verifying and adding credits:', error);
       return {
         success: false,
         message: error.message || 'Satın alma işlemi sırasında bir hata oluştu',
