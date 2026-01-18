@@ -139,20 +139,52 @@ export class AppleIAPService {
       // 5. Transaction bilgilerini kontrol et
       const receipt = verificationResult.receipt;
       const inAppPurchases = receipt.in_app || [];
+      const latestReceiptInfo = verificationResult.latest_receipt_info || [];
       
-      const matchingPurchase = inAppPurchases.find(
+      // Tüm transaction'ları birleştir (hem in_app hem latest_receipt_info)
+      const allPurchases = [...inAppPurchases, ...latestReceiptInfo];
+      
+      console.log(`[AppleIAP] Looking for transaction ${transactionId} with product ${productId}`);
+      console.log(`[AppleIAP] in_app count: ${inAppPurchases.length}, latest_receipt_info count: ${latestReceiptInfo.length}`);
+      console.log(`[AppleIAP] All transaction IDs in receipt:`, allPurchases.map((p: any) => ({ 
+        transaction_id: p.transaction_id, 
+        product_id: p.product_id,
+        original_transaction_id: p.original_transaction_id 
+      })));
+      
+      // Transaction ID eşleştirme - daha esnek karşılaştırma
+      // StoreKit 2'de transaction_id farklı formatta gelebilir
+      let matchingPurchase = allPurchases.find(
         (purchase: any) => purchase.transaction_id === transactionId && purchase.product_id === productId
       );
+      
+      // Eğer bulunamadıysa, sadece product_id ile en son transaction'ı bul
+      // (aynı ürünü birden fazla kez almış olabilir, en son olanı al)
+      if (!matchingPurchase) {
+        console.log(`[AppleIAP] Exact match not found, trying product_id only match...`);
+        const productMatches = allPurchases.filter((p: any) => p.product_id === productId);
+        if (productMatches.length > 0) {
+          // En son transaction'ı al (purchase_date'e göre)
+          matchingPurchase = productMatches.sort((a: any, b: any) => {
+            const dateA = parseInt(a.purchase_date_ms || '0');
+            const dateB = parseInt(b.purchase_date_ms || '0');
+            return dateB - dateA;
+          })[0];
+          console.log(`[AppleIAP] Found by product_id match: ${matchingPurchase.transaction_id}`);
+        }
+      }
 
       if (!matchingPurchase) {
-        console.error(`[AppleIAP] Purchase not found in receipt. Looking for transaction ${transactionId} with product ${productId}`);
+        console.error(`[AppleIAP] Purchase not found in receipt.`);
+        console.error(`[AppleIAP] Searched for: transaction=${transactionId}, product=${productId}`);
+        console.error(`[AppleIAP] Available purchases:`, JSON.stringify(allPurchases.slice(0, 5), null, 2));
         return {
           success: false,
           message: 'Satın alma bilgisi makbuzda bulunamadı',
         };
       }
 
-      console.log(`[AppleIAP] Purchase found in receipt: ${JSON.stringify(matchingPurchase)}`);
+      console.log(`[AppleIAP] ✅ Purchase found in receipt: ${JSON.stringify(matchingPurchase)}`);
 
       // 6. Kullanıcıyı bul
       const user = await this.userRepository.findOne({ where: { id: userId } });
@@ -165,12 +197,16 @@ export class AppleIAPService {
       }
 
       // 7. Kredileri ekle
+      // NOT: TypeORM decimal değerleri string olarak döndürebilir, parseFloat kullan
       const creditsToAdd = packageInfo.credits;
-      const oldBalance = user.currentCredit || 0;
-      user.currentCredit = oldBalance + creditsToAdd;
+      const oldBalance = typeof user.currentCredit === 'string' 
+        ? parseFloat(user.currentCredit) 
+        : (user.currentCredit || 0);
+      const newBalance = Math.round((oldBalance + creditsToAdd) * 100) / 100; // 2 decimal precision
+      user.currentCredit = newBalance;
       await this.userRepository.save(user);
 
-      console.log(`[AppleIAP] Credits added: ${creditsToAdd}. New balance: ${user.currentCredit} (was ${oldBalance})`);
+      console.log(`[AppleIAP] Credits added: ${creditsToAdd}. New balance: ${newBalance} (was ${oldBalance})`);
 
       // 8. Transaction kaydını oluştur
       await this.saveTransaction(
@@ -188,7 +224,7 @@ export class AppleIAPService {
         success: true,
         message: `${creditsToAdd} kredi hesabınıza eklendi!`,
         credits: creditsToAdd,
-        newBalance: user.currentCredit,
+        newBalance: newBalance,
       };
     } catch (error: any) {
       console.error('[AppleIAP] Error verifying and adding credits:', error);
