@@ -20,24 +20,27 @@ export const APPLE_PRODUCT_IDS = {
   CREDITS_800: 'com.voyageapp.credits800',
 };
 
-export const CREDIT_PACKAGES = {
+export const CREDIT_PACKAGES: { [key: string]: { credits: number; productId: string; name: string; description: string; priceInCents: number } } = {
   [APPLE_PRODUCT_IDS.CREDITS_150]: {
     credits: 150,
     productId: APPLE_PRODUCT_IDS.CREDITS_150,
-    name: 'Başlangıç Paketi',
-    description: '150 kredi',
+    name: 'Starter Package',
+    description: '150 credits',
+    priceInCents: 999, // $9.99
   },
   [APPLE_PRODUCT_IDS.CREDITS_350]: {
     credits: 350,
     productId: APPLE_PRODUCT_IDS.CREDITS_350,
-    name: 'Popüler Paket',
-    description: '350 kredi',
+    name: 'Popular Package',
+    description: '350 credits',
+    priceInCents: 1999, // $19.99
   },
   [APPLE_PRODUCT_IDS.CREDITS_800]: {
     credits: 800,
     productId: APPLE_PRODUCT_IDS.CREDITS_800,
-    name: 'Premium Paket',
-    description: '800 kredi',
+    name: 'Premium Package',
+    description: '800 credits',
+    priceInCents: 3999, // $39.99
   },
 };
 

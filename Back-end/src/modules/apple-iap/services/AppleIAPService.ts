@@ -9,6 +9,7 @@ import {
 import { User } from '../../user/entities/User';
 import { AppDataSource } from '../../../config/database';
 import { AppleIAPTransactionEntity, AppleTransactionStatusDB } from '../entities/AppleIAPTransaction';
+import { CreditTransaction } from '../../credit/entities/CreditTransaction';
 
 // Apple Verification URLs
 const APPLE_VERIFY_URL_PRODUCTION = 'https://buy.itunes.apple.com/verifyReceipt';
@@ -24,6 +25,7 @@ interface AppleReceiptVerification {
 export class AppleIAPService {
   private userRepository = AppDataSource.getRepository(User);
   private txRepository = AppDataSource.getRepository(AppleIAPTransactionEntity);
+  private creditTxRepository = AppDataSource.getRepository(CreditTransaction);
   
   // Apple Shared Secret (App Store Connect'ten alınacak)
   private readonly sharedSecret = process.env.APPLE_SHARED_SECRET || '';
@@ -105,11 +107,13 @@ export class AppleIAPService {
 
       // 2. Transaction daha önce kullanılmış mı kontrol et
       const existingTransaction = await this.findTransactionByTransactionId(transactionId);
-  if (existingTransaction && existingTransaction.status === AppleTransactionStatus.VERIFIED) {
-        console.warn(`[AppleIAP] Transaction ${transactionId} already verified`);
+      if (existingTransaction && existingTransaction.status === AppleTransactionStatus.VERIFIED) {
+        console.log(`[AppleIAP] Transaction ${transactionId} already verified - returning success (idempotent)`);
+        // Kullanıcıya hata gösterme, zaten kredisi eklenmişti
         return {
-          success: false,
-          message: 'Bu satın alma daha önce kullanıldı',
+          success: true,
+          message: 'ALREADY_VERIFIED', // Frontend bu kodu tanıyıp sessizce işleyecek
+          credits: existingTransaction.credits,
         };
       }
 
@@ -309,7 +313,11 @@ export class AppleIAPService {
     receiptData: string,
     status: AppleTransactionStatus
   ): Promise<void> {
-    const credits = CREDIT_PACKAGES[productId]?.credits || 0;
+    const packageInfo = CREDIT_PACKAGES[productId];
+    const credits = packageInfo?.credits || 0;
+    const priceInCents = packageInfo?.priceInCents || 0;
+    
+    // 1. Apple IAP Transaction tablosuna kaydet
     const entity = this.txRepository.create({
       userId,
       productId,
@@ -321,6 +329,24 @@ export class AppleIAPService {
       verifiedAt: status === AppleTransactionStatus.VERIFIED ? new Date() : null,
     });
     await this.txRepository.save(entity);
+    
+    // 2. Credit Transaction tablosuna da kaydet (Purchase History'de görünmesi için)
+    if (status === AppleTransactionStatus.VERIFIED) {
+      const creditTx = this.creditTxRepository.create({
+        userId,
+        packageId: productId, // Apple product ID'si
+        creditsEarned: credits,
+        priceInCents: priceInCents,
+        currency: 'USD',
+        status: 'completed',
+        transactionType: 'purchase',
+        paymentProvider: 'apple_iap',
+        paymentIntentId: transactionId, // Apple transaction ID
+        notes: `Apple IAP: ${packageInfo?.name || productId}`,
+      });
+      await this.creditTxRepository.save(creditTx);
+      console.log(`[AppleIAP] Saved to CreditTransaction table: ${credits} credits, txId: ${transactionId}`);
+    }
   }
 
   private getAppleStatusMessage(status: number): string {
